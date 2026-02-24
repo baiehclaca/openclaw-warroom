@@ -21,6 +21,7 @@ MAX_TASKS = 60
 SLA_WARN_MIN = 10
 SLA_ALERT_MIN = 30
 PINS_FILE = BASE / "workspace" / "tools" / "warroom-cli" / "pins.json"
+H_PAN_STEP = 12
 
 
 @dataclass
@@ -53,6 +54,22 @@ def now_ts() -> str:
 def truncate(s: str, n: int = 140) -> str:
     s = " ".join(s.split())
     return s if len(s) <= n else s[: n - 1] + "…"
+
+
+def horizontal_slice(line: str, x_offset: int, width: int) -> str:
+    if width <= 4:
+        return line
+    if x_offset <= 0:
+        return line[:width]
+
+    start = min(x_offset, max(0, len(line) - 1))
+    end = start + width
+    seg = line[start:end]
+    if start > 0 and seg:
+        seg = "←" + seg[1:]
+    if end < len(line) and seg:
+        seg = seg[:-1] + "→"
+    return seg
 
 
 def parse_iso(ts: str) -> Optional[datetime]:
@@ -451,6 +468,8 @@ class WarRoomApp(App):
         ("r", "reload_rooms", "Reload"),
         ("j", "down", "Next"),
         ("k", "up", "Prev"),
+        ("h", "pan_left", "Pan Left"),
+        ("l", "pan_right", "Pan Right"),
         ("p", "toggle_pin", "Pin"),
         ("a", "toggle_alert_mode", "Alert"),
     ]
@@ -465,6 +484,7 @@ class WarRoomApp(App):
         self.last_left_snapshot: str = ""
         self.last_right_snapshot: str = ""
         self.last_room_key: str = ""
+        self.x_offset: int = 0
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -482,7 +502,7 @@ class WarRoomApp(App):
                     with Vertical(id="pane_right"):
                         yield Static("LIVE FEED", classes="label")
                         yield RichLog(id="log_right", auto_scroll=True, highlight=True, markup=False)
-        yield Static("[r] reload  [j/k] move  [p] pin  [a] alert mode  [mouse] click room  [q] quit", id="status")
+        yield Static("[r] reload  [j/k] move  [h/l] horizontal pan  [p] pin  [a] alert mode  [mouse] click room  [q] quit", id="status")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -514,6 +534,14 @@ class WarRoomApp(App):
         self.selected_idx = max(self.selected_idx - 1, 0)
         self.query_one("#rooms", ListView).index = self.selected_idx
         self.load_selected_room()
+
+    def action_pan_left(self) -> None:
+        self.x_offset = max(0, self.x_offset - H_PAN_STEP)
+        self.load_selected_room(refresh_only=True)
+
+    def action_pan_right(self) -> None:
+        self.x_offset += H_PAN_STEP
+        self.load_selected_room(refresh_only=True)
 
     def rebuild_room_list(self, prev_key: str = "center") -> None:
         # Keep same selected room when possible
@@ -599,28 +627,37 @@ class WarRoomApp(App):
             left_lines = ["No data"]
             right_lines = []
 
-        left_snapshot = "\n".join(left_lines)
-        right_snapshot = "\n".join(right_lines)
         room_changed = room.key != self.last_room_key
+        if room_changed:
+            self.x_offset = 0
+
+        log_left = self.query_one("#log_left", RichLog)
+        log_right = self.query_one("#log_right", RichLog)
+        left_w = max(20, log_left.size.width - 1)
+        right_w = max(20, log_right.size.width - 1)
+
+        left_view = [horizontal_slice(ln, self.x_offset, left_w) for ln in left_lines]
+        right_view = [horizontal_slice(ln, self.x_offset, right_w) for ln in right_lines]
+
+        left_snapshot = "\n".join(left_view)
+        right_snapshot = "\n".join(right_view)
 
         if room_changed or left_snapshot != self.last_left_snapshot:
-            log_left = self.query_one("#log_left", RichLog)
             log_left.clear()
-            for ln in left_lines:
+            for ln in left_view:
                 log_left.write(ln)
             self.last_left_snapshot = left_snapshot
 
         if room_changed or right_snapshot != self.last_right_snapshot:
-            log_right = self.query_one("#log_right", RichLog)
             log_right.clear()
-            for ln in right_lines:
+            for ln in right_view:
                 log_right.write(ln)
             self.last_right_snapshot = right_snapshot
 
         self.last_room_key = room.key
 
         if not refresh_only:
-            self.title = f"WAR ROOM — {room.label}"
+            self.title = f"WAR ROOM — {room.label}  (x-pan: {self.x_offset})"
 
     def render_center(self) -> List[str]:
         lines: List[str] = []

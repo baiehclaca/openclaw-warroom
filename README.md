@@ -121,6 +121,22 @@ cd ~/.openclaw/workspace/tools/warroom-cli
 
 ---
 
+## Bug reporting
+
+Use GitHub Issues (templates included):
+
+- 🐞 Report bug: `https://github.com/baiehclaca/openclaw-warroom/issues/new?template=bug_report.yml`
+- 💡 Feature request: `https://github.com/baiehclaca/openclaw-warroom/issues/new?template=feature_request.yml`
+
+### Maintainer notifications
+
+To get instant notifications for new reports:
+1. Open repo on GitHub → **Watch**
+2. Choose **Custom**
+3. Enable **Issues** (and optionally **Pull requests**)
+
+---
+
 ## Positioning
 
 OpenClaw WarRoom is not a generic log tailer.
