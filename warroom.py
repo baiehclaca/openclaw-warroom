@@ -223,6 +223,27 @@ def extract_primary_text(msg: dict) -> str:
     return "\n".join(parts)
 
 
+def normalize_user_text(raw: str) -> str:
+    text = raw.strip()
+    if not text:
+        return ""
+
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+
+    # Prefer explicit quoted Slack payload line when present.
+    for ln in reversed(lines):
+        if ln.startswith("[Slack ") and "] " in ln:
+            candidate = ln.split("] ", 1)[1].strip()
+            if candidate:
+                return candidate
+
+    # Skip pure system wrappers with no actionable text.
+    if text.startswith("System:") and len(lines) == 1:
+        return ""
+
+    return text
+
+
 def load_tasks_from_session(path: Path) -> List[Task]:
     tasks: List[Task] = []
     current: Optional[Task] = None
@@ -254,8 +275,11 @@ def load_tasks_from_session(path: Path) -> List[Task]:
 
         # New task starts on user messages.
         if role == "user":
-            user_text = extract_primary_text(msg)
+            raw_user_text = extract_primary_text(msg)
+            user_text = normalize_user_text(raw_user_text)
             if not user_text:
+                continue
+            if user_text.lower().startswith("system:"):
                 continue
             task_index += 1
             current = Task(
