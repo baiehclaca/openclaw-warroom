@@ -28,6 +28,7 @@ SLA_ALERT_MIN = 30
 PINS_FILE = STATE_DIR / f"pins-{PROFILE}.json"
 LAYOUT_FILE = STATE_DIR / f"layout-{PROFILE}.json"
 PINGS_FILE = STATE_DIR / f"pings-{LINK_ID}.jsonl"
+CRON_JOBS_FILE = BASE / "cron" / "jobs.json"
 H_PAN_STEP = 12
 
 DEFAULT_LAYOUT: Dict[str, bool] = {
@@ -195,6 +196,51 @@ def load_ping_events(limit: int = 80) -> List[str]:
         except Exception:
             continue
     return lines
+
+
+def load_scheduled_pings(limit: int = 80) -> List[dict]:
+    if not CRON_JOBS_FILE.exists():
+        return []
+    try:
+        raw = json.loads(CRON_JOBS_FILE.read_text(encoding="utf-8", errors="replace"))
+    except Exception:
+        return []
+
+    jobs = raw.get("jobs", []) if isinstance(raw, dict) else []
+    rows: List[dict] = []
+    for job in jobs:
+        if not isinstance(job, dict):
+            continue
+        payload = job.get("payload", {}) if isinstance(job.get("payload"), dict) else {}
+        text = str(payload.get("text", "")).strip()
+        name = str(job.get("name", "")).strip() or "(unnamed job)"
+        enabled = bool(job.get("enabled", False))
+        next_ms = None
+        state = job.get("state", {}) if isinstance(job.get("state"), dict) else {}
+        if isinstance(state.get("nextRunAtMs"), (int, float)):
+            next_ms = int(state.get("nextRunAtMs"))
+        rows.append(
+            {
+                "id": str(job.get("id", "")),
+                "name": name,
+                "enabled": enabled,
+                "next_ms": next_ms,
+                "text": truncate(text, 180),
+            }
+        )
+
+    rows.sort(key=lambda x: (x["next_ms"] is None, x["next_ms"] or 0))
+    return rows[:limit]
+
+
+def format_due(next_ms: Optional[int]) -> str:
+    if not next_ms:
+        return "unscheduled"
+    dt = datetime.fromtimestamp(next_ms / 1000, tz=timezone.utc).astimezone()
+    mins = int((dt - datetime.now().astimezone()).total_seconds() // 60)
+    if mins >= 0:
+        return f"in {mins}m ({dt.strftime('%Y-%m-%d %H:%M')})"
+    return f"{-mins}m ago ({dt.strftime('%Y-%m-%d %H:%M')})"
 
 
 def orb(task: Task) -> str:
@@ -824,25 +870,26 @@ class WarRoomApp(App):
             self.title = f"WAR ROOM — {room.label}  (x-pan: {self.x_offset})"
 
     def render_pings_left(self) -> List[str]:
-        lines: List[str] = ["🔔 PINGS", "=" * 80]
-        lines.append("Auto-pings from task completions + manual watch pings.")
+        lines: List[str] = ["🔔 PINGS // SCHEDULED", "=" * 80]
+        lines.append("This room tracks scheduled OpenClaw pings/reminders (cron jobs).")
         lines.append("")
 
+        jobs = load_scheduled_pings(limit=60)
+        if jobs:
+            lines.append("Scheduled pings:")
+            for j in jobs[:30]:
+                icon = "🟢" if j["enabled"] else "⚪"
+                lines.append(f"  {icon} {j['name']}  —  {format_due(j['next_ms'])}")
+                if j["text"]:
+                    lines.append(f"      {j['text']}")
+        else:
+            lines.append("No scheduled pings found in cron jobs.")
+
+        lines.append("")
+        lines.append("Recent manual ping notes:")
         events = load_ping_events(limit=120)
         if events:
-            lines.append("Recent ping memory:")
-            lines.extend([f"  • {e}" for e in events[-40:]])
-        else:
-            lines.append("No ping memory yet. Press [g] on any room to add one.")
-
-        lines.append("")
-        lines.append("Recent task outcomes:")
-        task_rooms = [r for r in self.rooms if r.kind == "task" and r.task]
-        done_or_blocked = [r.task for r in task_rooms if r.task and r.task.status in {"DONE", "BLOCKED"}]
-        if done_or_blocked:
-            for t in done_or_blocked[:20]:
-                icon = "✅" if t.status == "DONE" else "❌"
-                lines.append(f"  {icon} {t.title}")
+            lines.extend([f"  • {e}" for e in events[-20:]])
         else:
             lines.append("  (none yet)")
 
@@ -850,17 +897,18 @@ class WarRoomApp(App):
 
     def render_pings_right(self) -> List[str]:
         lines: List[str] = ["PING NOTES", "=" * 80]
-        lines.append("Use this room as memory for scheduled follow-ups.")
+        lines.append("Pings = things you asked OpenClaw to do on a schedule.")
         lines.append("")
-        lines.append("Recommended ping patterns:")
-        lines.append("  • 'Ping me when outreach batch is sent'")
-        lines.append("  • 'Ping me after /train finishes'")
-        lines.append("  • 'Ping me when npm release is live'")
+        lines.append("How to create a ping:")
+        lines.append("  • Ask in chat: 'remind me/ping me at <time> to <task>'")
+        lines.append("  • OpenClaw writes a cron job")
+        lines.append("  • PINGS room displays status and due time")
         lines.append("")
         lines.append("Controls:")
-        lines.append("  • [g] Add ping entry from selected room")
-        lines.append("  • Use cron/system reminders for timed pings")
+        lines.append("  • [g] add manual watch note for selected room")
+        lines.append("  • [r] refresh now")
         lines.append(f"  • Shared ping stream link id: {LINK_ID}")
+        lines.append(f"  • Cron source: {CRON_JOBS_FILE}")
         return lines
 
     def render_config_left(self) -> List[str]:

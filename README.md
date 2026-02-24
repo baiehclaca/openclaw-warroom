@@ -70,11 +70,11 @@ Task and coding rooms render as:
 - **Right pane:** live coding / execution feed
 - Smooth horizontal pan (`h` / `l`) for long lines
 
-### 🔔 PINGS room (memory + follow-ups)
-Dedicated room for "ping me when done" workflows:
-- shared ping memory stream
-- manual watch pings from any selected room (`g`)
-- visible completion/blocker outcomes
+### 🔔 PINGS room (scheduled reminders tracker)
+Dedicated room for scheduled "ping/remind me" workflows:
+- tracks OpenClaw cron jobs (next run + status)
+- shows reminder text / intent
+- supports manual watch notes from any selected room (`g`)
 
 ### ⚙️ Customization menu
 Open `CONFIG` room (`m`) to control visible windows and layout.
