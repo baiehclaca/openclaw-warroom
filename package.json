@@ -1,0 +1,39 @@
+{
+  "name": "@teodorwaltervido/openclaw-warroom",
+  "version": "0.1.0",
+  "description": "Hacker-style task command center for OpenClaw with CENTER board, milestones, SLA timers, and alert mode.",
+  "type": "module",
+  "bin": {
+    "openclaw-warroom": "bin/openclaw-warroom.mjs"
+  },
+  "scripts": {
+    "start": "openclaw-warroom"
+  },
+  "keywords": [
+    "openclaw",
+    "warroom",
+    "terminal",
+    "textual",
+    "dashboard",
+    "ops"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/teodorwaltervido/openclaw-warroom.git"
+  },
+  "bugs": {
+    "url": "https://github.com/teodorwaltervido/openclaw-warroom/issues"
+  },
+  "homepage": "https://github.com/teodorwaltervido/openclaw-warroom#readme",
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "bin",
+    "warroom.py",
+    "run-warroom.sh",
+    "requirements.txt",
+    "README.md"
+  ]
+}
