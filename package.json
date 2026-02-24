@@ -20,12 +20,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/teodorwaltervido/openclaw-warroom.git"
+    "url": "git+https://github.com/baiehclaca/openclaw-warroom.git"
   },
   "bugs": {
-    "url": "https://github.com/teodorwaltervido/openclaw-warroom/issues"
+    "url": "https://github.com/baiehclaca/openclaw-warroom/issues"
   },
-  "homepage": "https://github.com/teodorwaltervido/openclaw-warroom#readme",
+  "homepage": "https://github.com/baiehclaca/openclaw-warroom#readme",
   "engines": {
     "node": ">=18"
   },
