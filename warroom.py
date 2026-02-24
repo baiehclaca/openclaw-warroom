@@ -28,6 +28,7 @@ SLA_ALERT_MIN = 30
 PINS_FILE = STATE_DIR / f"pins-{PROFILE}.json"
 LAYOUT_FILE = STATE_DIR / f"layout-{PROFILE}.json"
 PINGS_FILE = STATE_DIR / f"pings-{LINK_ID}.jsonl"
+FOCUS_FILE = STATE_DIR / f"focus-{LINK_ID}.json"
 CRON_JOBS_FILE = BASE / "cron" / "jobs.json"
 H_PAN_STEP = 12
 
@@ -174,6 +175,27 @@ def append_ping(kind: str, text: str) -> None:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
     except Exception:
         pass
+
+
+def save_focus(room_key: str) -> None:
+    try:
+        FOCUS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        FOCUS_FILE.write_text(json.dumps({"room": room_key, "updated": datetime.now(timezone.utc).isoformat()}), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def load_focus() -> Optional[str]:
+    try:
+        if not FOCUS_FILE.exists():
+            return None
+        raw = json.loads(FOCUS_FILE.read_text(encoding="utf-8", errors="replace"))
+        if isinstance(raw, dict):
+            room = str(raw.get("room", "")).strip()
+            return room or None
+    except Exception:
+        pass
+    return None
 
 
 def load_ping_events(limit: int = 80) -> List[str]:
@@ -643,6 +665,7 @@ class WarRoomApp(App):
 
     def __init__(self) -> None:
         super().__init__()
+        self.live_feed_only: bool = (os.getenv("WARROOM_LIVE_FEED", "0") == "1")
         self.rooms: List[Room] = []
         self.pins: Set[str] = load_pins()
         self.layout: Dict[str, bool] = load_layout()
@@ -654,21 +677,28 @@ class WarRoomApp(App):
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
-        yield Static("⚡ CLAWDY WAR ROOM // TASK COMMAND CENTER ⚡", id="title")
-        with Horizontal():
-            with Vertical(id="left"):
-                yield Static("ROOMS", classes="label")
-                yield ListView(id="rooms")
+        if self.live_feed_only:
+            yield Static("⚡ CLAWDY WAR ROOM // LIVE FEED MODE ⚡", id="title")
             with Vertical(id="right"):
-                yield Static("TASK VIEW", classes="label")
-                with Horizontal(id="detail_split"):
-                    with Vertical(id="pane_left"):
-                        yield Static("MILESTONES", classes="label")
-                        yield RichLog(id="log_left", auto_scroll=True, highlight=True, markup=False)
-                    with Vertical(id="pane_right"):
-                        yield Static("LIVE FEED", classes="label")
-                        yield RichLog(id="log_right", auto_scroll=True, highlight=True, markup=False)
-        yield Static("[r] reload [j/k] move [h/l] pan [m] menu [1-5] toggle windows [g] ping room [q] quit", id="status")
+                yield Static("LIVE FEED (FOLLOWING LINKED ROOM)", classes="label")
+                yield RichLog(id="log_right", auto_scroll=True, highlight=True, markup=False)
+            yield Static("[r] reload [h/l] pan [q] quit", id="status")
+        else:
+            yield Static("⚡ CLAWDY WAR ROOM // TASK COMMAND CENTER ⚡", id="title")
+            with Horizontal():
+                with Vertical(id="left"):
+                    yield Static("ROOMS", classes="label")
+                    yield ListView(id="rooms")
+                with Vertical(id="right"):
+                    yield Static("TASK VIEW", classes="label")
+                    with Horizontal(id="detail_split"):
+                        with Vertical(id="pane_left"):
+                            yield Static("MILESTONES", classes="label")
+                            yield RichLog(id="log_left", auto_scroll=True, highlight=True, markup=False)
+                        with Vertical(id="pane_right"):
+                            yield Static("LIVE FEED", classes="label")
+                            yield RichLog(id="log_right", auto_scroll=True, highlight=True, markup=False)
+            yield Static("[r] reload [j/k] move [h/l] pan [m] menu [1-5] toggle windows [g] ping room [q] quit", id="status")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -679,23 +709,35 @@ class WarRoomApp(App):
     def action_reload_rooms(self) -> None:
         prev_key = self.rooms[self.selected_idx].key if self.rooms else "center"
         self.rooms = build_rooms(self.pins, self.alert_mode, self.layout)
+
+        if self.live_feed_only:
+            target_key = load_focus() or prev_key
+            for i, room in enumerate(self.rooms):
+                if room.key == target_key:
+                    self.selected_idx = i
+                    break
+            self.load_selected_room()
+            return
+
         self.rebuild_room_list(prev_key=prev_key)
         self.load_selected_room()
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
+        if self.live_feed_only:
+            return
         if isinstance(event.item, RoomItem):
             self.selected_idx = self.rooms.index(event.item.room)
             self.load_selected_room()
 
     def action_down(self) -> None:
-        if not self.rooms:
+        if self.live_feed_only or not self.rooms:
             return
         self.selected_idx = min(self.selected_idx + 1, len(self.rooms) - 1)
         self.query_one("#rooms", ListView).index = self.selected_idx
         self.load_selected_room()
 
     def action_up(self) -> None:
-        if not self.rooms:
+        if self.live_feed_only or not self.rooms:
             return
         self.selected_idx = max(self.selected_idx - 1, 0)
         self.query_one("#rooms", ListView).index = self.selected_idx
@@ -715,6 +757,8 @@ class WarRoomApp(App):
         self.action_reload_rooms()
 
     def action_open_config(self) -> None:
+        if self.live_feed_only:
+            return
         for i, room in enumerate(self.rooms):
             if room.key == "config":
                 self.selected_idx = i
@@ -770,6 +814,15 @@ class WarRoomApp(App):
         new_keys = [r.key for r in new_rooms]
 
         self.rooms = new_rooms
+
+        if self.live_feed_only:
+            target_key = load_focus() or prev_key
+            for i, r in enumerate(self.rooms):
+                if r.key == target_key:
+                    self.selected_idx = i
+                    break
+            self.load_selected_room(refresh_only=True)
+            return
 
         # Rebuild only when room membership/order changed.
         if old_keys != new_keys:
@@ -840,6 +893,27 @@ class WarRoomApp(App):
         room_changed = room.key != self.last_room_key
         if room_changed:
             self.x_offset = 0
+
+        if self.live_feed_only:
+            log_right = self.query_one("#log_right", RichLog)
+            right_w = max(20, log_right.size.width - 1)
+            feed_source = right_lines if right_lines else left_lines
+            right_view = [horizontal_slice(ln, self.x_offset, right_w) for ln in feed_source]
+            right_snapshot = "\n".join(right_view)
+
+            if room_changed or right_snapshot != self.last_right_snapshot:
+                log_right.clear()
+                for ln in right_view:
+                    log_right.write(ln)
+                self.last_right_snapshot = right_snapshot
+
+            self.last_room_key = room.key
+            if not refresh_only:
+                self.title = f"WAR ROOM LIVE — {room.label}  (x-pan: {self.x_offset})"
+            return
+
+        # Main mode: publish currently selected room for linked LIVE FEED terminals.
+        save_focus(room.key)
 
         log_left = self.query_one("#log_left", RichLog)
         log_right = self.query_one("#log_right", RichLog)
@@ -936,11 +1010,11 @@ class WarRoomApp(App):
         lines.append("Example:")
         lines.append("  Terminal A (operator):")
         lines.append("    ./run-warroom.sh --profile ops --link team1")
-        lines.append("  Terminal B (exec):")
-        lines.append("    ./run-warroom.sh --profile exec --link team1")
+        lines.append("  Terminal B (live-feed mirror):")
+        lines.append("    ./run-warroom.sh --profile live --link team1 --live-feed")
         lines.append("")
-        lines.append("Both terminals share the same pings feed (link=team1)")
-        lines.append("while keeping independent window visibility (profile-based).")
+        lines.append("Main terminal publishes selected room.")
+        lines.append("Linked live-feed terminal mirrors that room full-screen.")
         return lines
 
     def render_center(self) -> List[str]:

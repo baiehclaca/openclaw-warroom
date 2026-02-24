@@ -119,21 +119,23 @@ cd ~/.openclaw/workspace/tools/warroom-cli
 
 ### Multi-terminal linking + custom layouts
 
-Use **same link id** to share ping memory between terminals, and different profiles for different window layouts:
+Use **same link id** to share state between terminals, and different profiles for different window layouts:
 
 ```bash
-# Operator layout
+# Main operator terminal
 ./run-warroom.sh --profile ops --link team1
 
-# Executive layout (separate terminal)
-./run-warroom.sh --profile exec --link team1
+# Secondary terminal: LIVE FEED mirror of selected room from main
+./run-warroom.sh --profile live --link team1 --live-feed
 ```
 
 Equivalent npm command:
 
 ```bash
-openclaw-warroom --profile exec --link team1
+openclaw-warroom --profile live --link team1 --live-feed
 ```
+
+In LIVE FEED mode, whatever room you select in the main linked terminal is shown full-screen in the live feed terminal.
 
 ---
 
@@ -148,6 +150,11 @@ openclaw-warroom --profile exec --link team1
 - `1..5` toggle windows (center, pings, tasks, coding, trace)
 - `a` toggle alert mode
 - `r` reload
+- `q` quit
+
+LIVE FEED mode keys:
+- `r` refresh
+- `h / l` horizontal pan
 - `q` quit
 
 ---

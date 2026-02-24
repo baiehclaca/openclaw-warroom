@@ -6,6 +6,7 @@ cd "$ROOT"
 
 PROFILE="${WARROOM_PROFILE:-default}"
 LINK_ID="${WARROOM_LINK:-local}"
+LIVE_FEED="${WARROOM_LIVE_FEED:-0}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -17,9 +18,13 @@ while [[ $# -gt 0 ]]; do
       LINK_ID="$2"
       shift 2
       ;;
+    --live-feed)
+      LIVE_FEED="1"
+      shift 1
+      ;;
     *)
       echo "Unknown arg: $1"
-      echo "Usage: ./run-warroom.sh [--profile <name>] [--link <id>]"
+      echo "Usage: ./run-warroom.sh [--profile <name>] [--link <id>] [--live-feed]"
       exit 1
       ;;
   esac
@@ -41,5 +46,6 @@ pip install --disable-pip-version-check --no-cache-dir -q -r requirements.txt
 
 export WARROOM_PROFILE="$PROFILE"
 export WARROOM_LINK="$LINK_ID"
+export WARROOM_LIVE_FEED="$LIVE_FEED"
 
 exec python3 warroom.py
