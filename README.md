@@ -1,79 +1,89 @@
-# OpenClaw WarRoom
+<p align="center">
+  <h1 align="center">⚡ OpenClaw WarRoom</h1>
+  <p align="center">
+    Terminal-first operations cockpit for OpenClaw — intelligent task rooms, milestone timelines, and live coding visibility.
+  </p>
+</p>
 
-A terminal-first operations cockpit for OpenClaw.
-
-OpenClaw WarRoom turns raw session logs into an actionable command center: **intelligent task names**, **live milestones**, **SLA awareness**, and **nested CODING rooms** so you can watch implementation flow in real time.
+<p align="center">
+  <a href="https://github.com/baiehclaca/openclaw-warroom/releases"><img src="https://img.shields.io/github/v/release/baiehclaca/openclaw-warroom?label=release" alt="release"></a>
+  <a href="https://www.npmjs.com/package/@sendroon/openclaw-warroom"><img src="https://img.shields.io/npm/v/@sendroon/openclaw-warroom" alt="npm"></a>
+  <a href="https://www.npmjs.com/package/@sendroon/openclaw-warroom"><img src="https://img.shields.io/npm/dm/@sendroon/openclaw-warroom" alt="downloads"></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="license"></a>
+</p>
 
 ---
 
-## Name
+## What is WarRoom?
 
-**Package:** `@sendroon/openclaw-warroom`  
-**CLI command:** `openclaw-warroom`
+**OpenClaw WarRoom** is a high-signal TUI for supervising autonomous agent execution.
+
+Instead of reading raw logs, you get:
+- a **CENTER** mission board
+- **intelligently named** task rooms
+- per-task **milestone progression**
+- nested **CODING rooms** with live implementation stream
+- SLA-style urgency cues for fast intervention
+
+Built for founders/operators running many parallel agent tasks.
 
 ---
 
-## Why this exists
+## Why it feels different
 
-When OpenClaw is doing serious work, transcripts and logs are too low-level for fast operator awareness.
-WarRoom provides a high-signal interface that answers:
+Most dashboards are either too shallow (just statuses) or too noisy (raw logs everywhere).
+WarRoom gives a layered model:
 
-- What is running right now?
-- Which task is blocked?
-- What changed in the last minute?
-- Which task needs intervention first?
-- What is the agent actually coding at this moment?
+1. **CENTER** → global awareness (what matters now)
+2. **TASK room** → intent + milestones
+3. **CODING room** → what the agent is actually doing line-by-line
+
+This keeps you in control without context-switch fatigue.
 
 ---
 
 ## Core features
 
-### 1) 🎯 CENTER room (mission control)
-- Real-time task overview
-- Status rollups: Running / Blocked / Done / SLA alerts
-- Quick operator triage
+### 🎯 CENTER room
+- Running / Blocked / Done / SLA summary
+- Priority-oriented list of active tasks
+- Pin support for mission-critical threads
 
-### 2) Intelligent task naming
-Auto-generates human-useful names from intent and command patterns, e.g.:
+### 🧠 Intelligent task naming
+Automatic naming from real intent and commands, e.g.:
 - `AETHER: Train Conversations`
 - `AETHER: Curate Memory Systems`
 - `X: Publish / Engage`
 - `Infra: AWS Planning`
 - `Comms: Matrix Synapse`
 
-### 3) Milestone timeline per task
-Each task room shows a clean progression:
+### 🪜 Milestone timeline
+Every task builds a compact timeline of:
 - request received
-- tool execution steps
+- tool execution
 - progress updates
-- completion / failure markers
+- completion / error events
 
-### 4) Split-view + nested `↳ CODING` room per task
-Task and coding rooms use a split view:
-- **left pane:** milestones and task metadata
-- **right pane:** live coding feed
+### 🧩 Split view (milestones + live feed)
+Task and coding rooms render as:
+- **Left pane:** milestones + metadata
+- **Right pane:** live coding / execution feed
 
-For every task room, there is also a child CODING room focused on implementation flow:
+### 🛰 Nested `↳ CODING` room
+Each task has a child implementation room with real-time stream of:
 - tool calls
-- assistant coding updates
-- execution flow events
+- coding updates
+- execution events
 
-Running tasks display an animated orb (`◐◓◑◒`) for immediate visual state.
-
-### 5) SLA and prioritization
-- Warn and alert thresholds for long-running tasks
-- Pin tasks to keep critical work on top
-- Alert-only mode for focused incident handling
-
-### 6) Trace rooms (raw logs)
-Optional deep observability via:
-- `~/.openclaw/logs/commands.log`
-- `~/.openclaw/logs/gateway.log`
-- `~/.openclaw/logs/gateway.err.log`
+### 🚨 Operator controls
+- SLA warning and alert thresholds
+- Pin/unpin task rooms
+- Alert-only mode
+- Seamless refresh strategy to reduce flicker/reload jitter
 
 ---
 
-## Install (npm)
+## Install
 
 ```bash
 npm install -g @sendroon/openclaw-warroom
@@ -84,7 +94,7 @@ openclaw-warroom
 
 ---
 
-## Local dev run
+## Usage (local dev)
 
 ```bash
 cd ~/.openclaw/workspace/tools/warroom-cli
@@ -93,12 +103,12 @@ cd ~/.openclaw/workspace/tools/warroom-cli
 
 ---
 
-## Controls
+## Keybindings
 
 - `mouse click` select room
 - `j / k` next / previous room
 - `p` pin / unpin selected task
-- `a` alert mode (critical focus)
+- `a` toggle alert mode
 - `r` reload
 - `q` quit
 
@@ -113,4 +123,7 @@ cd ~/.openclaw/workspace/tools/warroom-cli
 
 ## Positioning
 
-WarRoom is not a generic log viewer. It is an **operator UX layer for OpenClaw**, designed for high-velocity builders who need to supervise autonomous execution without drowning in noise.
+OpenClaw WarRoom is not a generic log tailer.
+It is an **operator UX layer** for real-time human-in-the-loop control of autonomous execution.
+
+If OpenClaw is your engine, WarRoom is your cockpit.

@@ -34,6 +34,7 @@
     "warroom.py",
     "run-warroom.sh",
     "requirements.txt",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ]
 }
