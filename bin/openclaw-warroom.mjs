@@ -7,7 +7,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const root = resolve(__dirname, "..");
 
-const child = spawn("bash", [resolve(root, "run-warroom.sh")], {
+const args = process.argv.slice(2);
+const child = spawn("bash", [resolve(root, "run-warroom.sh"), ...args], {
   cwd: root,
   stdio: "inherit",
   env: process.env,

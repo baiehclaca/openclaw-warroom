@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional, Set
+from typing import Dict, List, Optional, Set
 
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
@@ -16,12 +17,26 @@ from textual.widgets import Footer, Header, ListItem, ListView, RichLog, Static
 BASE = Path.home() / ".openclaw"
 SESSIONS_DIR = BASE / "agents" / "main" / "sessions"
 LOGS_DIR = BASE / "logs"
+WARROOM_DIR = BASE / "workspace" / "tools" / "warroom-cli"
+STATE_DIR = WARROOM_DIR / "state"
+PROFILE = os.getenv("WARROOM_PROFILE", "default").strip() or "default"
+LINK_ID = os.getenv("WARROOM_LINK", "local").strip() or "local"
 MAX_LINES = 800
 MAX_TASKS = 60
 SLA_WARN_MIN = 10
 SLA_ALERT_MIN = 30
-PINS_FILE = BASE / "workspace" / "tools" / "warroom-cli" / "pins.json"
+PINS_FILE = STATE_DIR / f"pins-{PROFILE}.json"
+LAYOUT_FILE = STATE_DIR / f"layout-{PROFILE}.json"
+PINGS_FILE = STATE_DIR / f"pings-{LINK_ID}.jsonl"
 H_PAN_STEP = 12
+
+DEFAULT_LAYOUT: Dict[str, bool] = {
+    "center": True,
+    "pings": True,
+    "tasks": True,
+    "coding": True,
+    "trace": True,
+}
 
 
 @dataclass
@@ -42,7 +57,7 @@ class Task:
 class Room:
     key: str
     label: str
-    kind: str  # center|task|coding|trace
+    kind: str  # center|pings|config|task|coding|trace
     path: Optional[Path] = None
     task: Optional[Task] = None
 
@@ -122,6 +137,64 @@ def save_pins(pins: Set[str]) -> None:
         PINS_FILE.write_text(json.dumps(sorted(list(pins)), indent=2), encoding="utf-8")
     except Exception:
         pass
+
+
+def load_layout() -> Dict[str, bool]:
+    layout = dict(DEFAULT_LAYOUT)
+    try:
+        if LAYOUT_FILE.exists():
+            raw = json.loads(LAYOUT_FILE.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                for key in DEFAULT_LAYOUT:
+                    if key in raw:
+                        layout[key] = bool(raw[key])
+    except Exception:
+        pass
+    return layout
+
+
+def save_layout(layout: Dict[str, bool]) -> None:
+    try:
+        LAYOUT_FILE.parent.mkdir(parents=True, exist_ok=True)
+        LAYOUT_FILE.write_text(json.dumps(layout, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def append_ping(kind: str, text: str) -> None:
+    try:
+        PINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        row = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "kind": kind,
+            "text": truncate(text, 260),
+        }
+        with PINGS_FILE.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
+def load_ping_events(limit: int = 80) -> List[str]:
+    if not PINGS_FILE.exists():
+        return []
+    lines: List[str] = []
+    try:
+        raw = PINGS_FILE.read_text(encoding="utf-8", errors="replace").splitlines()[-limit:]
+    except Exception:
+        return []
+
+    for ln in raw:
+        try:
+            obj = json.loads(ln)
+            ts = str(obj.get("timestamp", ""))
+            kind = str(obj.get("kind", "note"))
+            text = str(obj.get("text", "")).strip()
+            if text:
+                lines.append(f"[{ts}] ({kind}) {text}")
+        except Exception:
+            continue
+    return lines
 
 
 def orb(task: Task) -> str:
@@ -369,9 +442,20 @@ def parse_plain_tail(path: Path, limit: int = MAX_LINES) -> List[str]:
         return [f"[{now_ts()}] [read-error] {e}"]
 
 
-def build_rooms(pins: Optional[Set[str]] = None, alert_mode: bool = False) -> List[Room]:
+def build_rooms(
+    pins: Optional[Set[str]] = None,
+    alert_mode: bool = False,
+    layout: Optional[Dict[str, bool]] = None,
+) -> List[Room]:
     pins = pins or set()
-    rooms: List[Room] = [Room(key="center", label="🎯 CENTER", kind="center")]
+    layout = layout or dict(DEFAULT_LAYOUT)
+    rooms: List[Room] = []
+
+    if layout.get("center", True):
+        rooms.append(Room(key="center", label="🎯 CENTER", kind="center"))
+
+    if layout.get("pings", True):
+        rooms.append(Room(key="pings", label="🔔 PINGS", kind="pings"))
 
     all_tasks: List[Task] = []
     if SESSIONS_DIR.exists():
@@ -397,43 +481,47 @@ def build_rooms(pins: Optional[Set[str]] = None, alert_mode: bool = False) -> Li
     if alert_mode:
         all_tasks = [t for t in all_tasks if t.status == "BLOCKED" or sla_state(t) == "alert"]
 
-    for t in all_tasks:
-        sla = sla_state(t)
-        if t.status == "BLOCKED":
-            icon = "🔴"
-        elif t.status == "DONE":
-            icon = "🟢"
-        elif sla == "alert":
-            icon = "🚨"
-        elif sla == "warn":
-            icon = "🟠"
-        else:
-            icon = "🟡"
+    if layout.get("tasks", True):
+        for t in all_tasks:
+            sla = sla_state(t)
+            if t.status == "BLOCKED":
+                icon = "🔴"
+            elif t.status == "DONE":
+                icon = "🟢"
+            elif sla == "alert":
+                icon = "🚨"
+            elif sla == "warn":
+                icon = "🟠"
+            else:
+                icon = "🟡"
 
-        pin = "📌 " if t.id in pins else ""
-        rooms.append(
-            Room(
-                key=f"task:{t.id}",
-                label=f"{pin}{icon} {t.title}",
-                kind="task",
-                task=t,
+            pin = "📌 " if t.id in pins else ""
+            rooms.append(
+                Room(
+                    key=f"task:{t.id}",
+                    label=f"{pin}{icon} {t.title}",
+                    kind="task",
+                    task=t,
+                )
             )
-        )
-        rooms.append(
-            Room(
-                key=f"coding:{t.id}",
-                label="   ↳ CODING",
-                kind="coding",
-                task=t,
-            )
-        )
 
-    # Keep raw logs as trace rooms
-    for log_name in ["commands.log", "gateway.log", "gateway.err.log"]:
-        lp = LOGS_DIR / log_name
-        if lp.exists():
-            rooms.append(Room(key=f"trace:{log_name}", label=f"📟 TRACE {log_name}", kind="trace", path=lp))
+            if layout.get("coding", True):
+                rooms.append(
+                    Room(
+                        key=f"coding:{t.id}",
+                        label="   ↳ CODING",
+                        kind="coding",
+                        task=t,
+                    )
+                )
 
+    if layout.get("trace", True):
+        for log_name in ["commands.log", "gateway.log", "gateway.err.log"]:
+            lp = LOGS_DIR / log_name
+            if lp.exists():
+                rooms.append(Room(key=f"trace:{log_name}", label=f"📟 TRACE {log_name}", kind="trace", path=lp))
+
+    rooms.append(Room(key="config", label="⚙️ CONFIG", kind="config"))
     return rooms
 
 
@@ -496,6 +584,13 @@ class WarRoomApp(App):
         ("l", "pan_right", "Pan Right"),
         ("p", "toggle_pin", "Pin"),
         ("a", "toggle_alert_mode", "Alert"),
+        ("m", "open_config", "Menu"),
+        ("1", "toggle_window_center", "Toggle CENTER"),
+        ("2", "toggle_window_pings", "Toggle PINGS"),
+        ("3", "toggle_window_tasks", "Toggle TASKS"),
+        ("4", "toggle_window_coding", "Toggle CODING"),
+        ("5", "toggle_window_trace", "Toggle TRACE"),
+        ("g", "ping_selected", "Ping selected"),
     ]
 
     selected_idx = reactive(0)
@@ -504,6 +599,7 @@ class WarRoomApp(App):
         super().__init__()
         self.rooms: List[Room] = []
         self.pins: Set[str] = load_pins()
+        self.layout: Dict[str, bool] = load_layout()
         self.alert_mode: bool = False
         self.last_left_snapshot: str = ""
         self.last_right_snapshot: str = ""
@@ -526,7 +622,7 @@ class WarRoomApp(App):
                     with Vertical(id="pane_right"):
                         yield Static("LIVE FEED", classes="label")
                         yield RichLog(id="log_right", auto_scroll=True, highlight=True, markup=False)
-        yield Static("[r] reload  [j/k] move  [h/l] horizontal pan  [p] pin  [a] alert mode  [mouse] click room  [q] quit", id="status")
+        yield Static("[r] reload [j/k] move [h/l] pan [m] menu [1-5] toggle windows [g] ping room [q] quit", id="status")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -536,7 +632,7 @@ class WarRoomApp(App):
 
     def action_reload_rooms(self) -> None:
         prev_key = self.rooms[self.selected_idx].key if self.rooms else "center"
-        self.rooms = build_rooms(self.pins, self.alert_mode)
+        self.rooms = build_rooms(self.pins, self.alert_mode, self.layout)
         self.rebuild_room_list(prev_key=prev_key)
         self.load_selected_room()
 
@@ -567,6 +663,44 @@ class WarRoomApp(App):
         self.x_offset += H_PAN_STEP
         self.load_selected_room(refresh_only=True)
 
+    def _toggle_window(self, key: str) -> None:
+        self.layout[key] = not self.layout.get(key, True)
+        save_layout(self.layout)
+        self.action_reload_rooms()
+
+    def action_open_config(self) -> None:
+        for i, room in enumerate(self.rooms):
+            if room.key == "config":
+                self.selected_idx = i
+                self.query_one("#rooms", ListView).index = i
+                self.load_selected_room()
+                return
+
+    def action_toggle_window_center(self) -> None:
+        self._toggle_window("center")
+
+    def action_toggle_window_pings(self) -> None:
+        self._toggle_window("pings")
+
+    def action_toggle_window_tasks(self) -> None:
+        self._toggle_window("tasks")
+
+    def action_toggle_window_coding(self) -> None:
+        self._toggle_window("coding")
+
+    def action_toggle_window_trace(self) -> None:
+        self._toggle_window("trace")
+
+    def action_ping_selected(self) -> None:
+        if not self.rooms:
+            return
+        room = self.rooms[self.selected_idx]
+        if room.task:
+            append_ping("manual", f"Watch/ping: {room.task.title} [{room.task.status}]")
+        else:
+            append_ping("manual", f"Watch/ping room: {room.label}")
+        self.load_selected_room(refresh_only=True)
+
     def rebuild_room_list(self, prev_key: str = "center") -> None:
         # Keep same selected room when possible
         idx = 0
@@ -584,7 +718,7 @@ class WarRoomApp(App):
 
     def refresh_tick(self) -> None:
         prev_key = self.rooms[self.selected_idx].key if self.rooms else "center"
-        new_rooms = build_rooms(self.pins, self.alert_mode)
+        new_rooms = build_rooms(self.pins, self.alert_mode, self.layout)
 
         old_keys = [r.key for r in self.rooms]
         new_keys = [r.key for r in new_rooms]
@@ -638,6 +772,12 @@ class WarRoomApp(App):
         if room.kind == "center":
             left_lines = self.render_center()
             right_lines = self.render_center_right()
+        elif room.kind == "pings":
+            left_lines = self.render_pings_left()
+            right_lines = self.render_pings_right()
+        elif room.kind == "config":
+            left_lines = self.render_config_left()
+            right_lines = self.render_config_right()
         elif room.kind == "task" and room.task:
             left_lines = self.render_task(room.task)
             right_lines = self.render_coding_feed(room.task)
@@ -682,6 +822,78 @@ class WarRoomApp(App):
 
         if not refresh_only:
             self.title = f"WAR ROOM — {room.label}  (x-pan: {self.x_offset})"
+
+    def render_pings_left(self) -> List[str]:
+        lines: List[str] = ["🔔 PINGS", "=" * 80]
+        lines.append("Auto-pings from task completions + manual watch pings.")
+        lines.append("")
+
+        events = load_ping_events(limit=120)
+        if events:
+            lines.append("Recent ping memory:")
+            lines.extend([f"  • {e}" for e in events[-40:]])
+        else:
+            lines.append("No ping memory yet. Press [g] on any room to add one.")
+
+        lines.append("")
+        lines.append("Recent task outcomes:")
+        task_rooms = [r for r in self.rooms if r.kind == "task" and r.task]
+        done_or_blocked = [r.task for r in task_rooms if r.task and r.task.status in {"DONE", "BLOCKED"}]
+        if done_or_blocked:
+            for t in done_or_blocked[:20]:
+                icon = "✅" if t.status == "DONE" else "❌"
+                lines.append(f"  {icon} {t.title}")
+        else:
+            lines.append("  (none yet)")
+
+        return lines
+
+    def render_pings_right(self) -> List[str]:
+        lines: List[str] = ["PING NOTES", "=" * 80]
+        lines.append("Use this room as memory for scheduled follow-ups.")
+        lines.append("")
+        lines.append("Recommended ping patterns:")
+        lines.append("  • 'Ping me when outreach batch is sent'")
+        lines.append("  • 'Ping me after /train finishes'")
+        lines.append("  • 'Ping me when npm release is live'")
+        lines.append("")
+        lines.append("Controls:")
+        lines.append("  • [g] Add ping entry from selected room")
+        lines.append("  • Use cron/system reminders for timed pings")
+        lines.append(f"  • Shared ping stream link id: {LINK_ID}")
+        return lines
+
+    def render_config_left(self) -> List[str]:
+        lines: List[str] = ["⚙️ CUSTOMIZATION MENU", "=" * 80]
+        lines.append(f"Profile: {PROFILE}")
+        lines.append(f"Link ID: {LINK_ID}")
+        lines.append("")
+        lines.append("Toggle windows (press key anywhere):")
+        lines.append(f"  [1] CENTER  : {'ON' if self.layout.get('center', True) else 'OFF'}")
+        lines.append(f"  [2] PINGS   : {'ON' if self.layout.get('pings', True) else 'OFF'}")
+        lines.append(f"  [3] TASKS   : {'ON' if self.layout.get('tasks', True) else 'OFF'}")
+        lines.append(f"  [4] CODING  : {'ON' if self.layout.get('coding', True) else 'OFF'}")
+        lines.append(f"  [5] TRACE   : {'ON' if self.layout.get('trace', True) else 'OFF'}")
+        lines.append("")
+        lines.append(f"Layout file: {LAYOUT_FILE}")
+        lines.append(f"Pins file  : {PINS_FILE}")
+        lines.append(f"Ping file  : {PINGS_FILE}")
+        return lines
+
+    def render_config_right(self) -> List[str]:
+        lines: List[str] = ["MULTI-TERMINAL LINKING", "=" * 80]
+        lines.append("Run multiple WarRoom terminals with shared ping memory")
+        lines.append("but different layouts using profiles.")
+        lines.append("")
+        lines.append("Example:")
+        lines.append("  Terminal A (operator):")
+        lines.append("    ./run-warroom.sh --profile ops --link team1")
+        lines.append("  Terminal B (exec):")
+        lines.append("    ./run-warroom.sh --profile exec --link team1")
+        lines.append("")
+        lines.append("Both terminals share the same pings feed (link=team1)")
+        lines.append("while keeping independent window visibility (profile-based).")
+        return lines
 
     def render_center(self) -> List[str]:
         lines: List[str] = []

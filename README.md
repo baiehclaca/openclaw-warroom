@@ -68,6 +68,22 @@ Every task builds a compact timeline of:
 Task and coding rooms render as:
 - **Left pane:** milestones + metadata
 - **Right pane:** live coding / execution feed
+- Smooth horizontal pan (`h` / `l`) for long lines
+
+### 🔔 PINGS room (memory + follow-ups)
+Dedicated room for "ping me when done" workflows:
+- shared ping memory stream
+- manual watch pings from any selected room (`g`)
+- visible completion/blocker outcomes
+
+### ⚙️ Customization menu
+Open `CONFIG` room (`m`) to control visible windows and layout.
+Window toggles:
+- `1` CENTER
+- `2` PINGS
+- `3` TASKS
+- `4` CODING
+- `5` TRACE
 
 ### 🛰 Nested `↳ CODING` room
 Each task has a child implementation room with real-time stream of:
@@ -101,13 +117,35 @@ cd ~/.openclaw/workspace/tools/warroom-cli
 ./run-warroom.sh
 ```
 
+### Multi-terminal linking + custom layouts
+
+Use **same link id** to share ping memory between terminals, and different profiles for different window layouts:
+
+```bash
+# Operator layout
+./run-warroom.sh --profile ops --link team1
+
+# Executive layout (separate terminal)
+./run-warroom.sh --profile exec --link team1
+```
+
+Equivalent npm command:
+
+```bash
+openclaw-warroom --profile exec --link team1
+```
+
 ---
 
 ## Keybindings
 
 - `mouse click` select room
 - `j / k` next / previous room
+- `h / l` horizontal pan left/right
 - `p` pin / unpin selected task
+- `g` add ping entry from selected room
+- `m` open customization menu (`CONFIG` room)
+- `1..5` toggle windows (center, pings, tasks, coding, trace)
 - `a` toggle alert mode
 - `r` reload
 - `q` quit
