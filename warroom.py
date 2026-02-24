@@ -381,7 +381,7 @@ def build_rooms(pins: Optional[Set[str]] = None, alert_mode: bool = False) -> Li
         rooms.append(
             Room(
                 key=f"coding:{t.id}",
-                label=f"   ↳ {orb(t)} CODING",
+                label="   ↳ CODING",
                 kind="coding",
                 task=t,
             )
@@ -420,6 +420,14 @@ class WarRoomApp(App):
       padding: 0 1;
     }
 
+    #detail_split {
+      height: 1fr;
+    }
+
+    #pane_left, #pane_right {
+      width: 1fr;
+    }
+
     #title {
       content-align: center middle;
       color: #00ff99;
@@ -454,7 +462,9 @@ class WarRoomApp(App):
         self.rooms: List[Room] = []
         self.pins: Set[str] = load_pins()
         self.alert_mode: bool = False
-        self.last_render_snapshot: str = ""
+        self.last_left_snapshot: str = ""
+        self.last_right_snapshot: str = ""
+        self.last_room_key: str = ""
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -465,7 +475,13 @@ class WarRoomApp(App):
                 yield ListView(id="rooms")
             with Vertical(id="right"):
                 yield Static("TASK VIEW", classes="label")
-                yield RichLog(id="log", auto_scroll=True, highlight=True, markup=False)
+                with Horizontal(id="detail_split"):
+                    with Vertical(id="pane_left"):
+                        yield Static("MILESTONES", classes="label")
+                        yield RichLog(id="log_left", auto_scroll=True, highlight=True, markup=False)
+                    with Vertical(id="pane_right"):
+                        yield Static("LIVE FEED", classes="label")
+                        yield RichLog(id="log_right", auto_scroll=True, highlight=True, markup=False)
         yield Static("[r] reload  [j/k] move  [p] pin  [a] alert mode  [mouse] click room  [q] quit", id="status")
         yield Footer()
 
@@ -518,21 +534,26 @@ class WarRoomApp(App):
         prev_key = self.rooms[self.selected_idx].key if self.rooms else "center"
         new_rooms = build_rooms(self.pins, self.alert_mode)
 
-        old_sig = [(r.key, r.label) for r in self.rooms]
-        new_sig = [(r.key, r.label) for r in new_rooms]
+        old_keys = [r.key for r in self.rooms]
+        new_keys = [r.key for r in new_rooms]
 
         self.rooms = new_rooms
 
-        # Rebuild left pane only when room list actually changed (prevents flicker).
-        if old_sig != new_sig:
+        # Rebuild only when room membership/order changed.
+        if old_keys != new_keys:
             self.rebuild_room_list(prev_key=prev_key)
         else:
-            # keep selection index synchronized
+            # keep selection index synchronized + refresh labels in-place (no flicker)
+            lv = self.query_one("#rooms", ListView)
             for i, r in enumerate(self.rooms):
                 if r.key == prev_key:
                     self.selected_idx = i
-                    self.query_one("#rooms", ListView).index = i
-                    break
+                    lv.index = i
+                if i < len(lv.children) and isinstance(lv.children[i], RoomItem):
+                    item = lv.children[i]
+                    item.room = r
+                    label_widget = item.query_one(Static)
+                    label_widget.update(r.label)
 
         self.load_selected_room(refresh_only=True)
 
@@ -559,25 +580,44 @@ class WarRoomApp(App):
             return
 
         room = self.rooms[self.selected_idx]
-        lines: List[str]
-        if room.kind == "center":
-            lines = self.render_center()
-        elif room.kind == "task" and room.task:
-            lines = self.render_task(room.task)
-        elif room.kind == "coding" and room.task:
-            lines = self.render_coding(room.task)
-        elif room.kind == "trace" and room.path:
-            lines = self.render_trace(room)
-        else:
-            lines = ["No data"]
+        left_lines: List[str]
+        right_lines: List[str]
 
-        snapshot = "\n".join(lines)
-        if snapshot != self.last_render_snapshot:
-            log = self.query_one("#log", RichLog)
-            log.clear()
-            for ln in lines:
-                log.write(ln)
-            self.last_render_snapshot = snapshot
+        if room.kind == "center":
+            left_lines = self.render_center()
+            right_lines = self.render_center_right()
+        elif room.kind == "task" and room.task:
+            left_lines = self.render_task(room.task)
+            right_lines = self.render_coding_feed(room.task)
+        elif room.kind == "coding" and room.task:
+            left_lines = self.render_coding_meta(room.task)
+            right_lines = self.render_coding_feed(room.task)
+        elif room.kind == "trace" and room.path:
+            left_lines = self.render_trace(room)
+            right_lines = ["Open a task room for split milestones + live coding feed."]
+        else:
+            left_lines = ["No data"]
+            right_lines = []
+
+        left_snapshot = "\n".join(left_lines)
+        right_snapshot = "\n".join(right_lines)
+        room_changed = room.key != self.last_room_key
+
+        if room_changed or left_snapshot != self.last_left_snapshot:
+            log_left = self.query_one("#log_left", RichLog)
+            log_left.clear()
+            for ln in left_lines:
+                log_left.write(ln)
+            self.last_left_snapshot = left_snapshot
+
+        if room_changed or right_snapshot != self.last_right_snapshot:
+            log_right = self.query_one("#log_right", RichLog)
+            log_right.clear()
+            for ln in right_lines:
+                log_right.write(ln)
+            self.last_right_snapshot = right_snapshot
+
+        self.last_room_key = room.key
 
         if not refresh_only:
             self.title = f"WAR ROOM — {room.label}"
@@ -626,6 +666,31 @@ class WarRoomApp(App):
         lines.append("Tip: click task rooms for milestone progress. [p]=pin  [a]=alert mode")
         return lines
 
+    def render_center_right(self) -> List[str]:
+        lines: List[str] = ["LIVE FEED / PRIORITY", "=" * 80]
+        tasks = [r.task for r in self.rooms if r.kind == "task" and r.task]
+        running = [t for t in tasks if t.status == "RUNNING"]
+        blocked = [t for t in tasks if t.status == "BLOCKED"]
+
+        lines.append("Blocked first:")
+        if blocked:
+            for t in blocked[:10]:
+                lines.append(f"  🔴 {t.title}")
+        else:
+            lines.append("  (none)")
+
+        lines.append("")
+        lines.append("Running now:")
+        if running:
+            for t in running[:10]:
+                lines.append(f"  {orb(t)} {t.title}")
+        else:
+            lines.append("  (none)")
+
+        lines.append("")
+        lines.append("Tip: open a task room for split Milestones + Live Coding feed.")
+        return lines
+
     def render_task(self, task: Task) -> List[str]:
         lines: List[str] = []
         sla = sla_state(task)
@@ -661,13 +726,26 @@ class WarRoomApp(App):
             lines.append(f"  {i:02d}. {m}")
         return lines
 
-    def render_coding(self, task: Task) -> List[str]:
+    def render_coding_meta(self, task: Task) -> List[str]:
         lines: List[str] = []
         o = orb(task)
         lines.append(f"{o} CODING // {task.title}")
         lines.append("=" * 80)
-        lines.append(f"Status: {task.status}   Session: {task.session_name}   Start line: {task.start_line}")
-        lines.append("Live stream:")
+        lines.append(f"Status: {task.status}")
+        lines.append(f"Session: {task.session_name}")
+        lines.append(f"Start line: {task.start_line}")
+        lines.append(f"Source: {task.source_path or 'n/a'}")
+        lines.append("")
+        lines.append("Milestones:")
+        if not task.milestones:
+            lines.append("  (no milestones yet)")
+            return lines
+        for i, m in enumerate(task.milestones[-15:], start=1):
+            lines.append(f"  {i:02d}. {m}")
+        return lines
+
+    def render_coding_feed(self, task: Task) -> List[str]:
+        lines: List[str] = ["LIVE CODING FEED", "=" * 80]
 
         if not task.source_path:
             lines.append("No source transcript available for this task.")
@@ -716,7 +794,7 @@ class WarRoomApp(App):
                         feed.append(f"[{ts}] {role}: 💭 {truncate(thinking, 180)}")
 
         if not feed:
-            lines.append("  (waiting for coding events)")
+            lines.append("(waiting for coding events)")
             return lines
 
         lines.extend(feed[-120:])

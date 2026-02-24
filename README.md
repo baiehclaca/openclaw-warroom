@@ -48,8 +48,12 @@ Each task room shows a clean progression:
 - progress updates
 - completion / failure markers
 
-### 4) Nested `↳ CODING` room per task
-For every task room, there is a child CODING room with a live stream of:
+### 4) Split-view + nested `↳ CODING` room per task
+Task and coding rooms use a split view:
+- **left pane:** milestones and task metadata
+- **right pane:** live coding feed
+
+For every task room, there is also a child CODING room focused on implementation flow:
 - tool calls
 - assistant coding updates
 - execution flow events
