@@ -33,13 +33,15 @@ class Task:
     milestones: List[str] = field(default_factory=list)
     started_at: str = ""
     updated_at: str = ""
+    source_path: str = ""
+    start_line: int = 0
 
 
 @dataclass
 class Room:
     key: str
     label: str
-    kind: str  # center|task|trace
+    kind: str  # center|task|coding|trace
     path: Optional[Path] = None
     task: Optional[Task] = None
 
@@ -103,6 +105,15 @@ def save_pins(pins: Set[str]) -> None:
         PINS_FILE.write_text(json.dumps(sorted(list(pins)), indent=2), encoding="utf-8")
     except Exception:
         pass
+
+
+def orb(task: Task) -> str:
+    if task.status == "DONE":
+        return "🟢"
+    if task.status == "BLOCKED":
+        return "🔴"
+    frames = ["◐", "◓", "◑", "◒"]
+    return frames[int(datetime.now().timestamp()) % len(frames)]
 
 
 def title_from_user_text(text: str, index: int) -> str:
@@ -208,7 +219,7 @@ def load_tasks_from_session(path: Path) -> List[Task]:
     task_index = 0
     session_name = path.stem[:8]
 
-    for raw in lines:
+    for line_no, raw in enumerate(lines, start=1):
         raw = raw.strip()
         if not raw:
             continue
@@ -239,6 +250,8 @@ def load_tasks_from_session(path: Path) -> List[Task]:
                 milestones=[f"🟡 Request received: {truncate(user_text, 120)}"],
                 started_at=str(ts),
                 updated_at=str(ts),
+                source_path=str(path),
+                start_line=line_no,
             )
             tasks.append(current)
             continue
@@ -365,6 +378,14 @@ def build_rooms(pins: Optional[Set[str]] = None, alert_mode: bool = False) -> Li
                 task=t,
             )
         )
+        rooms.append(
+            Room(
+                key=f"coding:{t.id}",
+                label=f"   ↳ {orb(t)} CODING",
+                kind="coding",
+                task=t,
+            )
+        )
 
     # Keep raw logs as trace rooms
     for log_name in ["commands.log", "gateway.log", "gateway.err.log"]:
@@ -445,7 +466,7 @@ class WarRoomApp(App):
             with Vertical(id="right"):
                 yield Static("TASK VIEW", classes="label")
                 yield RichLog(id="log", auto_scroll=True, highlight=True, markup=False)
-        yield Static("[r] reload  [j/k] move  [p] pin  [a] alert mode  [mouse] click  [q] quit", id="status")
+        yield Static("[r] reload  [j/k] move  [p] pin  [a] alert mode  [mouse] click room  [q] quit", id="status")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -523,7 +544,7 @@ class WarRoomApp(App):
         if not self.rooms:
             return
         room = self.rooms[self.selected_idx]
-        if room.kind != "task" or not room.task:
+        if room.kind not in {"task", "coding"} or not room.task:
             return
         task_id = room.task.id
         if task_id in self.pins:
@@ -543,6 +564,8 @@ class WarRoomApp(App):
             lines = self.render_center()
         elif room.kind == "task" and room.task:
             lines = self.render_task(room.task)
+        elif room.kind == "coding" and room.task:
+            lines = self.render_coding(room.task)
         elif room.kind == "trace" and room.path:
             lines = self.render_trace(room)
         else:
@@ -627,6 +650,7 @@ class WarRoomApp(App):
         if age is not None:
             lines.append(f"SLA timer: {age}m (warn>{SLA_WARN_MIN}m, alert>{SLA_ALERT_MIN}m)")
         lines.append("")
+        lines.append(f"Live coding room: coding:{task.id}")
         lines.append("Milestones:")
 
         if not task.milestones:
@@ -635,6 +659,67 @@ class WarRoomApp(App):
 
         for i, m in enumerate(task.milestones, start=1):
             lines.append(f"  {i:02d}. {m}")
+        return lines
+
+    def render_coding(self, task: Task) -> List[str]:
+        lines: List[str] = []
+        o = orb(task)
+        lines.append(f"{o} CODING // {task.title}")
+        lines.append("=" * 80)
+        lines.append(f"Status: {task.status}   Session: {task.session_name}   Start line: {task.start_line}")
+        lines.append("Live stream:")
+
+        if not task.source_path:
+            lines.append("No source transcript available for this task.")
+            return lines
+
+        p = Path(task.source_path)
+        if not p.exists():
+            lines.append(f"Transcript missing: {p}")
+            return lines
+
+        try:
+            raw_lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
+        except Exception as e:
+            lines.append(f"Read error: {e}")
+            return lines
+
+        feed: List[str] = []
+        start = max(0, task.start_line - 1)
+        for raw in raw_lines[start:]:
+            try:
+                obj = json.loads(raw)
+            except Exception:
+                continue
+            if obj.get("type") != "message":
+                continue
+
+            msg = obj.get("message", {})
+            role = msg.get("role", "?")
+            ts = obj.get("timestamp", "")
+            content = msg.get("content", [])
+            if not isinstance(content, list):
+                continue
+
+            for item in content:
+                it = item.get("type")
+                if it == "toolCall":
+                    name = item.get("name", "tool")
+                    feed.append(f"[{ts}] {role}: 🛠 {name}")
+                elif it == "text":
+                    txt = str(item.get("text", "")).strip()
+                    if txt:
+                        feed.append(f"[{ts}] {role}: {truncate(txt, 220)}")
+                elif it == "thinking":
+                    thinking = str(item.get("thinking", "")).strip()
+                    if thinking:
+                        feed.append(f"[{ts}] {role}: 💭 {truncate(thinking, 180)}")
+
+        if not feed:
+            lines.append("  (waiting for coding events)")
+            return lines
+
+        lines.extend(feed[-120:])
         return lines
 
     def render_trace(self, room: Room) -> List[str]:

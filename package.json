@@ -1,5 +1,5 @@
 {
-  "name": "@teodorwaltervido/openclaw-warroom",
+  "name": "@sendroon/openclaw-warroom",
   "version": "0.1.0",
   "description": "Hacker-style task command center for OpenClaw with CENTER board, milestones, SLA timers, and alert mode.",
   "type": "module",
