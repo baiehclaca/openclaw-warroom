@@ -51,11 +51,10 @@ This keeps you in control without context-switch fatigue.
 
 ### 🧠 Intelligent task naming
 Automatic naming from real intent and commands, e.g.:
-- `AETHER: Train Conversations`
-- `AETHER: Curate Memory Systems`
-- `X: Publish / Engage`
-- `Infra: AWS Planning`
-- `Comms: Matrix Synapse`
+- `Conversations`
+- `Memory Sticks Costs`
+- `Engage with people`
+- `AWS Planning`
 
 ### 🪜 Milestone timeline
 Every task builds a compact timeline of:
